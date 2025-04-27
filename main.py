@@ -11,8 +11,8 @@ from find_goal import find_goal
 from query_matcher import match_goal_from_query
 import random
 from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Button
 
-# Color-coding for different algorithms
 ALGORITHM_COLORS = {
     "BFS": "blue",
     "DFS": "red",
@@ -20,127 +20,129 @@ ALGORITHM_COLORS = {
     "AO*": "purple"
 }
 
-# Visualize the grid with a step-by-step animation of the path
-def animate_path(grid, path, title="Grid Visualization", path_color="red"):
-    grid_array = np.array(grid)
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.imshow(grid_array, cmap="Blues", interpolation="nearest")
-    ax.set_title(title, fontsize=16, fontweight='bold')
+class GridVisualizer:
+    def __init__(self, maps_dir):
+        self.maps_dir = maps_dir
+        self.map_files = sorted([f for f in os.listdir(maps_dir) if f.startswith('grid_map_') and f.endswith('.txt')])
+        self.current_map_index = 0
+        self.grid = self.load_current_map()
+        self.start = (0, 0)
+        self.goal = find_goal(self.grid)
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.setup_mode = True
+        self.current_selection = 'start'
+        self.paths = {}
+        self.current_algorithm = None
+        self.algorithms = ["BFS", "DFS", "A*", "AO*"]
+        self.algorithm_index = 0
+        self.setup_plot()
+        self.setup_change_map_button()
 
-    for i in range(len(grid)):
-        for j in range(len(grid[0])):
-            ax.text(j, i, str(grid[i][j]), ha='center', va='center', color='black', fontsize=12, fontweight='bold')
+    def load_current_map(self):
+        file_path = os.path.join(self.maps_dir, self.map_files[self.current_map_index])
+        return load_grid_map(file_path)
 
-    # Highlight the start and goal positions
-    ax.text(0, 0, 'S', ha='center', va='center', color='green', fontsize=15, fontweight='bold')
-    goal = find_goal(grid)
-    ax.text(goal[1], goal[0], 'G', ha='center', va='center', color='yellow', fontsize=15, fontweight='bold')
+    def setup_plot(self):
+        self.ax.clear()
+        grid_array = np.array(self.grid)
+        self.ax.imshow(grid_array, cmap="Blues", interpolation="nearest")
+        for i in range(len(self.grid)):
+            for j in range(len(self.grid[0])):
+                self.ax.text(j, i, str(self.grid[i][j]), ha='center', va='center', color='black', fontsize=10, fontweight='bold')
+        self.ax.text(self.start[1], self.start[0], 'S', ha='center', va='center', color='green', fontsize=14, fontweight='bold')
+        self.ax.text(self.goal[1], self.goal[0], 'G', ha='center', va='center', color='yellow', fontsize=14, fontweight='bold')
+        if self.setup_mode:
+            title = f"Map {self.current_map_index+1}/{len(self.map_files)}: Click to set {'START' if self.current_selection == 'start' else 'GOAL'} position"
+        else:
+            title = f"Map {self.current_map_index+1}/{len(self.map_files)}: Path Finding: {self.current_algorithm}" if self.current_algorithm else "Path Finding"
+        self.ax.set_title(title, fontsize=16, fontweight='bold')
+        self.fig.canvas.draw()
 
-    # Prepare the path for animation
-    path_line, = ax.plot([], [], color=path_color, marker='o', markersize=8, linestyle='-', linewidth=2)
+    def setup_change_map_button(self):
+        change_map_ax = plt.axes([0.8, 0.9, 0.15, 0.07])
+        self.change_map_button = Button(change_map_ax, 'Change Map')
+        self.change_map_button.on_clicked(self.change_map)
 
-    def init():
-        path_line.set_data([], [])
-        return path_line,
+    def change_map(self, event):
+        if hasattr(self, 'anim') and self.anim is not None:
+            self.anim.event_source.stop()
+            self.anim = None
+        self.current_map_index = (self.current_map_index + 1) % len(self.map_files)
+        self.grid = self.load_current_map()
+        self.start = (0, 0)
+        self.goal = find_goal(self.grid)
+        self.setup_mode = True
+        self.current_selection = 'start'
+        self.paths = {}
+        self.current_algorithm = None
+        self.algorithm_index = 0
+        self.setup_plot()
 
-    def update(frame):
-        x_vals = [p[1] for p in path[:frame+1]]
-        y_vals = [p[0] for p in path[:frame+1]]
-        path_line.set_data(x_vals, y_vals)
-        return path_line,
+    def onclick(self, event):
+        if event.inaxes != self.ax:
+            return
+        x, y = int(round(event.ydata)), int(round(event.xdata))
+        if 0 <= x < len(self.grid) and 0 <= y < len(self.grid[0]):
+            if self.grid[x][y] != 1:
+                if self.current_selection == 'start':
+                    self.start = (x, y)
+                    self.current_selection = 'goal'
+                elif self.current_selection == 'goal':
+                    self.goal = (x, y)
+                    self.current_selection = 'start'
+                    self.setup_mode = False
+                    self.calculate_paths()
+                    self.setup_animation_controls()
+                self.setup_plot()
 
-    # Create the animation
-    anim = FuncAnimation(fig, update, frames=len(path), init_func=init, blit=True, interval=300)
+    def calculate_paths(self):
+        self.paths['BFS'] = bfs(self.grid, self.start, self.goal)
+        self.paths['DFS'] = dfs_non_recursive(self.grid, self.start, self.goal)
+        self.paths['A*'] = a_star(self.grid, self.start, self.goal)
+        ao_path, _ = ao_star(self.grid, self.start, self.goal)
+        self.paths['AO*'] = ao_path
+        self.current_algorithm = self.algorithms[0]
 
-    # Show the animation
-    plt.show()
+    def setup_animation_controls(self):
+        plt.subplots_adjust(bottom=0.2)
+        next_ax = plt.axes([0.7, 0.05, 0.2, 0.075])
+        self.next_button = Button(next_ax, 'Next Algorithm')
+        self.next_button.on_clicked(self.next_algorithm)
+        animate_ax = plt.axes([0.1, 0.05, 0.2, 0.075])
+        self.animate_button = Button(animate_ax, 'Animate Path')
+        self.animate_button.on_clicked(self.animate_current_path)
 
-# Visualize and optionally save to file
-def visualize_grid(grid, path=None, title="Grid Visualization", path_color="red", save_path=None, ax=None):
-    grid_array = np.array(grid)
+    def next_algorithm(self, event):
+        self.algorithm_index = (self.algorithm_index + 1) % len(self.algorithms)
+        self.current_algorithm = self.algorithms[self.algorithm_index]
+        self.setup_plot()
 
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(5, 5))
-
-    ax.imshow(grid_array, cmap="Blues", interpolation="nearest")
-    ax.set_title(title, fontsize=14, fontweight='bold')
-
-    for i in range(len(grid)):
-        for j in range(len(grid[0])):
-            ax.text(j, i, str(grid[i][j]), ha='center', va='center', color='black', fontsize=10, fontweight='bold')
-
-    # Path
-    if path:
-        for (i, j) in path:
-            ax.text(j, i, 'P', ha='center', va='center', color=path_color, fontsize=12, fontweight='bold')
-
-    # Start and Goal
-    ax.text(0, 0, 'S', ha='center', va='center', color='green', fontsize=14, fontweight='bold')
-    goal = find_goal(grid)
-    ax.text(goal[1], goal[0], 'G', ha='center', va='center', color='yellow', fontsize=14, fontweight='bold')
-
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    if save_path:
-        plt.savefig(save_path)
-        plt.close()
+    def animate_current_path(self, event):
+        if not self.current_algorithm or not self.paths[self.current_algorithm]:
+            return
+        if hasattr(self, 'anim') and self.anim is not None:
+            self.anim.event_source.stop()
+            self.anim = None
+        path = self.paths[self.current_algorithm]
+        color = ALGORITHM_COLORS[self.current_algorithm]
+        line, = self.ax.plot([], [], color=color, marker='o', markersize=8, linewidth=2)
+        def init():
+            line.set_data([], [])
+            return line,
+        def update(frame):
+            x_data = [p[1] for p in path[:frame+1]]
+            y_data = [p[0] for p in path[:frame+1]]
+            line.set_data(x_data, y_data)
+            return line,
+        self.anim = FuncAnimation(self.fig, update, frames=len(path), init_func=init, blit=True, interval=300)
+        plt.draw()
 
 def main():
-    grid = load_grid_map("data/maps/grid_map_1.txt")
-    queries = load_queries("data/queries/queries.txt")
-
-    query = random.choice(queries)
-    classified_goal = match_goal_from_query(query['query'])
-
-    start = (0, 0)
-    goal = find_goal(grid)
-
-    print("Selected Query:", query['query'])
-    print("Matched Goal:", classified_goal)
-    print("Goal Position in grid:", goal)
-
-    # Make sure output directory exists
-    os.makedirs("visualizations", exist_ok=True)
-
-    # BFS
-    bfs_path = bfs(grid, start, goal)
-    print("\nBFS Path Found:", bfs_path)
-    animate_path(grid, bfs_path, title="BFS Path", path_color=ALGORITHM_COLORS["BFS"])
-
-    # DFS
-    dfs_path = dfs_non_recursive(grid, start, goal)
-    print("\nDFS Path Found:", dfs_path)
-    animate_path(grid, dfs_path, title="DFS Path", path_color=ALGORITHM_COLORS["DFS"])
-
-    # A*
-    astar_path = a_star(grid, start, goal)
-    print("\nA* Path Found:", astar_path)
-    animate_path(grid, astar_path, title="A* Path", path_color=ALGORITHM_COLORS["A*"])
-
-    # AO*
-    ao_star_path = ao_star(grid, start, goal)
-    print("\nAO* (Fallback BFS) Path Found:", ao_star_path)
-    animate_path(grid, ao_star_path, title="AO* Path", path_color=ALGORITHM_COLORS["AO*"])
-
-    # Combine all visualizations side-by-side
-    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
-    visualize_grid(grid, bfs_path, title="BFS", path_color=ALGORITHM_COLORS["BFS"], ax=axs[0])
-    visualize_grid(grid, dfs_path, title="DFS", path_color=ALGORITHM_COLORS["DFS"], ax=axs[1])
-    visualize_grid(grid, astar_path, title="A*", path_color=ALGORITHM_COLORS["A*"], ax=axs[2])
-    visualize_grid(grid, ao_star_path, title="AO*", path_color=ALGORITHM_COLORS["AO*"], ax=axs[3])
-    plt.tight_layout()
-    plt.savefig("visualizations/combined.png")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    maps_dir = os.path.join(script_dir, "data/maps")
+    visualizer = GridVisualizer(maps_dir)
+    visualizer.fig.canvas.mpl_connect('button_press_event', visualizer.onclick)
     plt.show()
-
-    # Water Jug
-    print("\nWater Jug Problem (Jug capacities: 4 and 3; Target: 2):")
-    jug_path = water_jug_solver(4, 3, 2)
-    if jug_path:
-        for state in jug_path:
-            print(state)
-    else:
-        print("No solution found for the water jug problem.")
 
 if __name__ == "__main__":
     main()
