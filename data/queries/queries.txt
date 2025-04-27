@@ -1,0 +1,7 @@
+{"query": "আমাকে নিকটস্থ হাসপাতাল দেখান", "goal": "hospital"}
+{"query": "Flooded road ahead, find safe path", "goal": "hospital", "avoid": "flood"}
+{"query": "Find shortest way to cyclone shelter", "goal": "shelter"}
+{"query": "I want to take water to the next village", "goal": "resource_delivery", "type": "water"}
+{"query": "পথ বন্ধ আছে, বিকল্প রাস্তা দিন", "goal": "alt_path"}
+{"query": "Doctor needed, avoid blocked areas", "goal": "hospital", "avoid": "blocked"}
+{"query": "I want to carry medicine from center to village", "goal": "resource_delivery", "type": "medicine"}
